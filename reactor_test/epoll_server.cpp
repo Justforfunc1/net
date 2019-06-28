@@ -28,7 +28,6 @@ int setnonblocking( int fd )
     return 0;
 }
 
-
 void readUntilEmpty(int conn) {
     int r_len;
     char buf[1024];
@@ -37,11 +36,91 @@ void readUntilEmpty(int conn) {
     } while (r_len > 0);
 }
 
-void dataRead(int fd, char* buf, int size) {
-    if (buf == nullptr) {
+int dataRead(int fd, int epoll_fd, char* r_buf, int size) {
+    if (r_buf == nullptr) {
         readUntilEmpty(fd);
-
+        printf("buf is nullptr");
+        return -1;
     }
+
+    int r_len = 0;
+
+    do{
+
+        r_len = read(fd, r_buf, size);
+        if (r_len > 0) {
+            continue;
+        } else if (r_len < 0) { //数据接收完成
+            if(errno == EINTR) {
+                printf("Epoll read EINTR 中断 : %d\n", errno);
+                continue;
+            }
+            else if(errno == EAGAIN) {
+                printf("Epoll read EAGAIN 没有数据可读 : %d\n", errno);
+                return 1;
+            }
+            else if(errno == EWOULDBLOCK) {
+                printf("Epoll read EWOULDBLOCK 网络阻塞 : %d\n", errno);
+                return 1;
+            } else {
+                printf("Epoll read error %d\n", errno);
+                struct epoll_event ev;
+                ev.events = EPOLLERR;
+                epoll_ctl(epoll_fd, EPOLL_CTL_DEL, fd, &ev);
+                close(fd);
+                return -1;
+            }
+
+        } else if (r_len == 0) { //连接断开
+            struct epoll_event ev;
+            ev.events = EPOLLERR;
+            epoll_ctl(epoll_fd, EPOLL_CTL_DEL, fd, &ev);
+            printf("client have exit : %d\n", errno);
+            close(fd);
+
+            return -1;
+        } else {
+            readUntilEmpty(fd);
+            return -1;
+        }
+
+    } while (1);
+}
+
+int dataSend(int fd, int epoll_fd, char* s_buf, int size) {
+    if (size > 0) {
+        int tlen = 0;
+        int wlen = 0;
+        while (tlen < size) {
+            wlen = write(fd, s_buf + tlen, size -tlen);
+            if (wlen > 0) {
+                tlen += wlen;
+            } else if (wlen < 0){
+                if(errno == EINTR) {
+                    printf("Epoll write EINTR 中断 : %d\n", errno);
+                    continue;
+                }
+                else if(errno == EAGAIN || errno == EWOULDBLOCK) {
+                    printf("Epoll write EAGAIN 没有数据可写 : %d\n", errno);
+                    continue;
+                } else {
+                    printf("Epoll write Error : %d\n", errno);
+                    return -1;
+                }
+            } else if (wlen == 0) {
+                struct epoll_event ev;
+                ev.events = EPOLLERR;
+                epoll_ctl(epoll_fd, EPOLL_CTL_DEL, fd, &ev);
+                printf("client have exit : %d\n", errno);
+                close(fd);
+                return -1;
+            }
+        }
+
+        return 1;
+    }
+
+    return -1;
 }
 
 int main(int argc, char **args)
@@ -149,121 +228,135 @@ int main(int argc, char **args)
             if(evs[i].data.fd == listen_fd)
             {
                 bzero(&c_addr, sizeof(c_addr));
-                conn_fd = accept(listen_fd, (struct sockaddr*)&c_addr, &len);
+                while ((conn_fd = accept(listen_fd, (struct sockaddr*)&c_addr, &len)) > 0) {
+
+                    //设置成非阻塞模式
+                    if(setnonblocking(conn_fd) == -1)
+                    {
+                        printf("Setnonblocking Error : %d\n", errno);
+                        exit( EXIT_FAILURE );
+                    }
+
+                    //加入epoll监听队列
+                    event.data.fd = conn_fd;
+                    event.events = EPOLLIN | EPOLLET;
+                    if((epoll_ctl(epoll_fd, EPOLL_CTL_ADD, conn_fd, &event)) < 0)
+                    {
+                        printf("Epoll add Error : %d\n", errno);
+                        exit( EXIT_FAILURE);
+                    }
+
+                    printf("conn_fd = %d,ip = %s,port = %d\n",conn_fd, inet_ntoa(c_addr.sin_addr),c_addr.sin_port);
+                }
+
                 if(conn_fd < 0)
                 {
-                    printf("Accept Error : %d\n", errno);
-                    exit( EXIT_FAILURE );
+                    if (errno != EAGAIN && errno != ECONNABORTED && errno != EPROTO && errno != EINTR) {
+                        printf("Accept Error : %d\n", errno);
+                    }
                 }
-                if(conn_fd == 0)
-                {
-                    printf ( "%s\n" , strerror(errno) );
-                }
-                printf("conn_fd = %d,ip = %s,port = %d\n",conn_fd, inet_ntoa(c_addr.sin_addr),c_addr.sin_port);
+                continue;
 
-                //设置成非阻塞模式
-                if(setnonblocking(conn_fd) == -1)
-                {
-                    printf("Setnonblocking Error : %d\n", errno);
-                    exit( EXIT_FAILURE );
-                }
-
-                //加入epoll监听队列
-                event.data.fd = conn_fd;
-                event.events = EPOLLIN | EPOLLET;
-                if((epoll_ctl(epoll_fd, EPOLL_CTL_ADD, conn_fd, &event)) < 0)
-                {
-                    printf("Epoll add Error : %d\n", errno);
-                    exit( EXIT_FAILURE );
-                }
-            }
-
-            else
-            {
-                if(evs[i].events & EPOLLIN)
-                {
+            } else {
+                if(evs[i].events & EPOLLIN) {
                     int fd = evs[i].data.fd;
-                    if(fd == -1)
-                    {
+                    if (fd == -1) {
                         printf("Epoll EPOLLIN Error : %d\n", errno);
                         exit(EXIT_FAILURE);
                     }
                     //读取数据
                     memset(r_buf, 0, sizeof(r_buf));
-                    int iRt = read(fd, r_buf, sizeof(r_buf));
-                    if(iRt < 0)
-                    {
-                        if(errno == EINTR) {
-                            printf("Epoll read EINTR 中断 : %d\n", errno);
-                        }
-                        else if(errno == EAGAIN) {
-                            printf("Epoll read EAGAIN 没有数据可读 : %d\n", errno);
-                        }
-                        else if(errno == EWOULDBLOCK) {
-                            printf("Epoll read EWOULDBLOCK 网络问题 : %d\n", errno);
-                        } else {
-                            printf("Epoll read error %d\n", errno);
-                            exit(EXIT_FAILURE);
-                        }
-                    }
-                    if(iRt == 0)
-                    {
-                        event.events = EPOLLERR;
-                        epoll_ctl(epoll_fd, EPOLL_CTL_DEL, fd, &event);
-                        printf("client have exit : %d\n", errno);
-                        close(fd);
-                    } else {
+                    if (dataRead(fd, epoll_fd, r_buf, sizeof(r_buf)) > 0) {
                         event.events = EPOLLOUT;
                         epoll_ctl(epoll_fd, EPOLL_CTL_MOD, fd, &event);
-                        printf("Client msg:%s\n",r_buf);
+                        printf("Client msg:%s\n", r_buf);
                         memset(s_buf, 0, sizeof(s_buf));
-                        memcpy(s_buf, r_buf, strlen(r_buf));
+                        strcpy(s_buf, r_buf);
+                        //memcpy(s_buf, r_buf, strlen(r_buf));
                     }
+
+//                    int iRt = read(fd, r_buf, sizeof(r_buf));
+//                    if(iRt < 0)
+//                    {
+//                        if(errno == EINTR) {
+//                            printf("Epoll read EINTR 中断 : %d\n", errno);
+//                        }
+//                        else if(errno == EAGAIN) {
+//                            printf("Epoll read EAGAIN 没有数据可读 : %d\n", errno);
+//                        }
+//                        else if(errno == EWOULDBLOCK) {
+//                            printf("Epoll read EWOULDBLOCK 网络问题 : %d\n", errno);
+//                        } else {
+//                            printf("Epoll read error %d\n", errno);
+//                            exit(EXIT_FAILURE);
+//                        }
+//                    }
+//                    if(iRt == 0)
+//                    {
+//                        event.events = EPOLLERR;
+//                        epoll_ctl(epoll_fd, EPOLL_CTL_DEL, fd, &event);
+//                        printf("client have exit : %d\n", errno);
+//                        close(fd);
+//                    } else {
+//                        event.events = EPOLLOUT;
+//                        epoll_ctl(epoll_fd, EPOLL_CTL_MOD, fd, &event);
+//                        printf("Client msg:%s\n",r_buf);
+//                        memset(s_buf, 0, sizeof(s_buf));
+//                        memcpy(s_buf, r_buf, strlen(r_buf));
+//                    }
 
                 }
 
-                else if(evs[i].events & EPOLLOUT)
-                {
+                if(evs[i].events & EPOLLOUT) {
                     int fd = evs[i].data.fd;
                     if(fd < 0)
                     {
                         printf("Epoll EPOLLOUT Error : %d\n", errno);
                         exit(EXIT_FAILURE);
                     }
+
                     //回传数据
-                    int ret = write(fd, s_buf, strlen(s_buf));
-                    if(ret < 0)
-                    {
-                        if(errno == EINTR) {
-                            printf("Epoll write EINTR 中断 : %d\n", errno);
-                        }
-                        else if(errno == EAGAIN) {
-                            printf("Epoll write EAGAIN 没有数据可读 : %d\n", errno);
-                        }
-                        else if(errno == EWOULDBLOCK) {
-                            printf("Epoll write EWOULDBLOCK 网络问题 : %d\n", errno);
-                        } else {
-                            printf("Epoll write Error : %d\n", errno);
-                            exit(EXIT_FAILURE);
-                        }
-                    }
-                    if(ret == 0)
-                    {
-                        event.events = EPOLLERR;
-                        epoll_ctl(epoll_fd, EPOLL_CTL_DEL, fd, &event);
-                        printf("client have exit : %d\n", errno);
-                        close(fd);
-                    } else {
+                    if (dataSend(fd, epoll_fd, s_buf, strlen(s_buf)) > 0) {
                         event.events = EPOLLIN;
                         epoll_ctl(epoll_fd, EPOLL_CTL_MOD, fd, &event);
+                        printf("Server msg:%s\n",s_buf);
                         memset(s_buf, 0, sizeof(s_buf));
                     }
+
+//                    int ret = write(fd, s_buf, strlen(s_buf));
+//                    if(ret < 0)
+//                    {
+//                        if(errno == EINTR) {
+//                            printf("Epoll write EINTR 中断 : %d\n", errno);
+//                        }
+//                        else if(errno == EAGAIN) {
+//                            printf("Epoll write EAGAIN 没有数据可读 : %d\n", errno);
+//                        }
+//                        else if(errno == EWOULDBLOCK) {
+//                            printf("Epoll write EWOULDBLOCK 网络问题 : %d\n", errno);
+//                        } else {
+//                            printf("Epoll write Error : %d\n", errno);
+//                            exit(EXIT_FAILURE);
+//                        }
+//                    }
+//                    if(ret == 0)
+//                    {
+//                        event.events = EPOLLERR;
+//                        epoll_ctl(epoll_fd, EPOLL_CTL_DEL, fd, &event);
+//                        printf("client have exit : %d\n", errno);
+//                        close(fd);
+//                    }
                 }
             }
 
         }
     }
 
+
     close( listen_fd );
     return 0;
 }
+
+
+
+
