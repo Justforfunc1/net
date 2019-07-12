@@ -15,8 +15,8 @@ public:
     virtual ~EventHandler() {}
     virtual Handle get_handle() const = 0;
     virtual int handle_accept() = 0;
-    virtual void handle_read() = 0;
-    virtual void handle_write() = 0;
+    virtual int handle_read() = 0;
+    virtual int handle_write() = 0;
     virtual void handle_error() = 0;
 };
 

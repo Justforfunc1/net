@@ -19,6 +19,5 @@ private:
     int _max_fd;
     int _epoll_fd;
     int _listen_fd;
-    struct epoll_event events[1024];
 };
 

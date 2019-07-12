@@ -4,6 +4,7 @@
 
 #include "event_handler.h"
 #include "event.h"
+#include <sys/socket.h>
 
 class SocketHandler : public EventHandler {
 public:
@@ -13,9 +14,18 @@ public:
         return _socket_fd;
     }
     virtual int handle_accept();
-    virtual void handle_read();
-    virtual void handle_write();
+    virtual int handle_read();
+    virtual int handle_write();
     virtual void handle_error();
+
+    inline void readUntilEmpty(int conn) {
+        int r_len;
+        char buf[1024];
+        do {
+            r_len = recv(conn, buf, 1024, 0);
+        } while (r_len > 0);
+    }
+
 private:
     Handle _socket_fd;
     char* _buf;

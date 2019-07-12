@@ -12,26 +12,19 @@ STLIB =
 CC=g++
 CPPFLAGS=-Wall -g  -std=c++11
 
-OBJS = socket_handler.o accept_handler.o epoll_demultiplexer.o reactor_impl.o reactor.o
+OBJS = socket_handler.o accept_handler.o epoll_demultiplexer.o reactor.o
 
-all: clean compile main client server
+all: clean compile reactor_server
 
 compile:
 	$(CC) $(CPPFLAGS) $(INC_PATH) $(LIB_PATH) -c socket_handler.cpp -o socket_handler.o
 	$(CC) $(CPPFLAGS) $(INC_PATH) $(LIB_PATH) -c accept_handler.cpp -o accept_handler.o
 	$(CC) $(CPPFLAGS) $(INC_PATH) $(LIB_PATH) -c epoll_demultiplexer.cpp -o epoll_demultiplexer.o
-	$(CC) $(CPPFLAGS) $(INC_PATH) $(LIB_PATH) -c reactor_impl.cpp -o reactor_impl.o
+#	$(CC) $(CPPFLAGS) $(INC_PATH) $(LIB_PATH) -c reactor_impl.cpp -o reactor_impl.o
 	$(CC) $(CPPFLAGS) $(INC_PATH) $(LIB_PATH) -c reactor.cpp -o reactor.o
 
-main:
-	$(CC) $(CPPFLAGS) $(INC_PATH) $(LIB_PATH) $(SHRLIB) $(LIB) -Wl,-rpath=$(SHRLIB_PATH) $(OBJS) $(STLIB) main.cpp -o main
-
-client:
-	$(CC) $(CPPFLAGS) $(INC_PATH) $(LIB_PATH) $(SHRLIB) $(LIB) -Wl,-rpath=$(SHRLIB_PATH) $(OBJS) $(STLIB) client.cpp -o client
-
-server:
-	$(CC) $(CPPFLAGS) $(INC_PATH) $(LIB_PATH) $(SHRLIB) $(LIB) -Wl,-rpath=$(SHRLIB_PATH) $(OBJS) $(STLIB) epoll_server.cpp -o server
-
+reactor_server:
+	$(CC) $(CPPFLAGS) $(INC_PATH) $(LIB_PATH) $(SHRLIB) $(LIB) -Wl,-rpath=$(SHRLIB_PATH) $(OBJS) $(STLIB) main.cpp -o reactor_server
 
 
 	#mv $@ $(BIN_PATH)
@@ -47,4 +40,4 @@ run:
 
 
 clean:
-	rm -f *.o main client server
+	rm -f *.o reactor_server

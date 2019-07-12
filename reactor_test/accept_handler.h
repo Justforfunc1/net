@@ -16,8 +16,8 @@ public:
         return _listen_fd;
     }
     virtual int handle_accept();
-    virtual void handle_read();
-    virtual void handle_write();
+    virtual int handle_read();
+    virtual int handle_write();
     virtual void handle_error();
 
     inline int setnonblocking( int fd )

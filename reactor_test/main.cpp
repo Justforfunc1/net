@@ -24,8 +24,8 @@ int main() {
     struct sockaddr_in seraddr;
     seraddr.sin_family = AF_INET;
     seraddr.sin_port = htons(8008);
-//    seraddr.sin_addr.s_addr = htonl(INADDR_ANY);
-    seraddr.sin_addr.s_addr = inet_addr("127.0.0.1");
+    seraddr.sin_addr.s_addr = htonl(INADDR_ANY);
+//    seraddr.sin_addr.s_addr = inet_addr("127.0.0.1");
 
     //创建监听sock
     if ((listenfd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
@@ -65,7 +65,6 @@ int main() {
     EventHandler* handler = new AcceptHandler(listenfd);
     actor.regist(handler, AcceptEvent);
     actor.dispatch(100);
-
 
     return 0;
 }

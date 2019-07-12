@@ -4,9 +4,7 @@
 
 #include "event_handler.h"
 #include "event.h"
-#include "reactor_impl.h"
-
-class ReactorImpl;
+#include "event_demultiplexer.h"
 
 class Reactor {
 public:
@@ -22,8 +20,9 @@ private:
     Reactor& operator=(const Reactor&);
 
 private:
-    ReactorImpl* _reactor_impl;
     static Reactor reactor;
+    EventDemultiplexer* _demultiplexer;
+    std::map<Handle, EventHandler*> _handlers;
 };
 
 
